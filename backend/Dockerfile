@@ -15,9 +15,13 @@ FROM base AS runtime
 COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
 
-RUN addgroup --system appgroup && adduser --system --group appuser
+RUN addgroup --system appgroup && \
+    adduser --system --group --home /home/appuser appuser && \
+    mkdir -p /home/appuser/.cache && \
+    chown -R appuser:appgroup /home/appuser
 COPY --chown=appuser:appgroup . .
 USER appuser
+ENV HOME=/home/appuser
 
 EXPOSE 8000
 

@@ -17,6 +17,10 @@ class RealDataAdapter:
         if self._yf is None:
             try:
                 import yfinance as yf
+                import os
+                cache_dir = os.path.join(os.environ.get("HOME", "/tmp"), ".cache", "py-yfinance")
+                os.makedirs(cache_dir, exist_ok=True)
+                yf.set_tz_cache_location(cache_dir)
                 self._yf = yf
             except ImportError:
                 logger.warning("yfinance not installed — install it with: pip install yfinance")
@@ -67,10 +71,15 @@ class RealDataAdapter:
         if yf is None:
             return None
         try:
-            import pandas as pd
+            from datetime import date, timedelta
             t = yf.Ticker(ticker)
-            hist = t.history(period="1y")
+            end = date.today()
+            start = end - timedelta(days=400)
+            hist = t.history(start=start.isoformat(), end=end.isoformat())
             if hist.empty:
+                hist = t.history(period="6mo")
+            if hist.empty:
+                logger.warning(f"yfinance: no price data for {ticker}, using mock fallback")
                 return None
 
             closes = hist["Close"]
