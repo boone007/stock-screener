@@ -1,0 +1,12 @@
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+pydantic==2.7.1
+pydantic-settings==2.3.0
+python-dotenv==1.0.1
+redis==5.0.4
+httpx==0.27.0
+
+# Optional real-data adapters (uncomment to enable)
+# yfinance==0.2.40
+# pandas==2.2.2
+# numpy==1.26.4

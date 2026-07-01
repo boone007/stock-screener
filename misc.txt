@@ -1,0 +1,44 @@
+What Was Built — 59 Files Across 6 Layers
+1. Scoring Engine (Python, backend/app/scoring/)
+Pure deterministic 5-factor model, fully testable without any API calls:
+
+Factor	Max	Algorithm
+Momentum	20	RSI + SMA50/200 crossover + MACD + volume ratio
+Value	20	P/E, P/B, P/S, EV/EBITDA, FCF yield vs thresholds
+Quality	20	ROE, ROA, Gross Margin, Op Margin, Piotroski F-Score
+Growth	20	Revenue growth, EPS growth, FCF yield
+Risk	20	Inverse: Beta, 30d vol, Altman Z-Score, Debt/Equity
+Composite	100	Sum + A+→F grade + bull/bear/neutral probabilities
+2. FastAPI Backend (backend/)
+5 REST endpoints: /score, /fundamentals, /technicals, /sentiment, /risk
+/score/ bulk screening (comma-separated tickers, max 20)
+/score/watchlist/defaults — pre-scored 15 large-caps
+Mock data generator with deterministic seeds (same ticker = same score)
+yfinance real-data adapter with automatic mock fallback
+Redis cache (gracefully degrades if Redis is unavailable)
+Auto-generated Swagger docs at /docs
+3. Next.js Frontend (frontend/)
+Dashboard.tsx — sticky header, responsive grid layout, dark/light mode
+ScoreCard.tsx — SVG arc gauges per factor, breakdown rows
+CompositeScoreCard.tsx — 0-100 score, letter grade, probability bars
+TrendChart.tsx — Price+MAs / RSI / MACD / Volume tabs via Recharts
+SectorTable.tsx — Sortable, filterable watchlist with score bars
+ProbabilityIndicator.tsx — Sentiment gauge, analyst consensus bar, headlines
+JsonViewer.tsx — Collapsible tree + raw toggle + one-click copy
+TickerSearch.tsx — Typeahead dropdown, Enter to search any symbol
+4. Docker (docker-compose.yml + 2 Dockerfiles)
+Multi-stage builds, non-root users, health checks on all services
+Redis with LRU eviction, 128MB cap
+5. Azure Deployment (deploy/azure/)
+Bicep for ACR + Container Apps + Redis Cache
+GitHub Actions: build → ACR push → Container Apps update
+6. AWS Deployment (deploy/aws/)
+CloudFormation: full VPC, ECS Fargate, ALB, auto-scaling, circuit breaker
+Terraform alternative with same feature set + module-based VPC
+GitHub Actions: OIDC auth → ECR push → ECS rolling deploy
+To run locally right now:
+
+cd stock-screener
+cp .env.example .env
+docker compose up --build
+# → http://localhost:3000

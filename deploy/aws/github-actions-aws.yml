@@ -1,0 +1,155 @@
+name: AWS — Build, Push, Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'prod'
+        type: choice
+        options: [dev, staging, prod]
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  ECS_CLUSTER: zen-screener-${{ github.event.inputs.environment || 'prod' }}
+  BACKEND_SERVICE: zen-backend-${{ github.event.inputs.environment || 'prod' }}
+  FRONTEND_SERVICE: zen-frontend-${{ github.event.inputs.environment || 'prod' }}
+  BACKEND_TASK_DEF: zen-backend-${{ github.event.inputs.environment || 'prod' }}
+  FRONTEND_TASK_DEF: zen-frontend-${{ github.event.inputs.environment || 'prod' }}
+
+jobs:
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tag.outputs.tag }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate image tag
+        id: tag
+        run: echo "tag=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/zen-backend:${{ steps.tag.outputs.tag }}
+            ${{ env.ECR_REGISTRY }}/zen-backend:latest
+          cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/zen-backend:cache
+          cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/zen-backend:cache,mode=max
+
+      - name: Build & Push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.BACKEND_URL }}
+          tags: |
+            ${{ env.ECR_REGISTRY }}/zen-frontend:${{ steps.tag.outputs.tag }}
+            ${{ env.ECR_REGISTRY }}/zen-frontend:latest
+          cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/zen-frontend:cache
+          cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/zen-frontend:cache,mode=max
+
+  deploy:
+    name: Deploy to ECS Fargate
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'prod' }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download backend task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.BACKEND_TASK_DEF }} \
+            --query taskDefinition > backend-task-def.json
+
+      - name: Update backend container image
+        id: backend-task
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: backend-task-def.json
+          container-name: backend
+          image: ${{ env.ECR_REGISTRY }}/zen-backend:${{ needs.build-and-push.outputs.image_tag }}
+
+      - name: Deploy backend to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.backend-task.outputs.task-definition }}
+          service: ${{ env.BACKEND_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+          codedeploy-appspec: false
+
+      - name: Download frontend task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.FRONTEND_TASK_DEF }} \
+            --query taskDefinition > frontend-task-def.json
+
+      - name: Update frontend container image
+        id: frontend-task
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: frontend-task-def.json
+          container-name: frontend
+          image: ${{ env.ECR_REGISTRY }}/zen-frontend:${{ needs.build-and-push.outputs.image_tag }}
+
+      - name: Deploy frontend to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.frontend-task.outputs.task-definition }}
+          service: ${{ env.FRONTEND_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Deployment summary
+        run: |
+          echo "### Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "- Image tag: ${{ needs.build-and-push.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Cluster: ${{ env.ECS_CLUSTER }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend service: ${{ env.BACKEND_SERVICE }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend service: ${{ env.FRONTEND_SERVICE }}" >> $GITHUB_STEP_SUMMARY
+
+# Required GitHub Secrets:
+#   AWS_DEPLOY_ROLE_ARN     - IAM Role ARN for OIDC (sts:AssumeRoleWithWebIdentity)
+#   AWS_REGION              - e.g. us-east-1
+#   ECR_REGISTRY            - e.g. 123456789.dkr.ecr.us-east-1.amazonaws.com
+#   BACKEND_URL             - e.g. http://zen-alb-prod.us-east-1.elb.amazonaws.com

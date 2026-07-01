@@ -1,0 +1,125 @@
+name: Azure — Build, Push, Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'prod'
+        type: choice
+        options: [dev, staging, prod]
+
+env:
+  ACR_REGISTRY: ${{ secrets.AZURE_ACR_LOGIN_SERVER }}
+  RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+  BACKEND_APP_NAME: zen-backend-${{ github.event.inputs.environment || 'prod' }}
+  FRONTEND_APP_NAME: zen-frontend-${{ github.event.inputs.environment || 'prod' }}
+
+jobs:
+  build-and-push:
+    name: Build & Push to ACR
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tag.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate image tag
+        id: tag
+        run: echo "tag=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ secrets.AZURE_ACR_NAME }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.ACR_REGISTRY }}/zen-backend:${{ steps.tag.outputs.tag }}
+            ${{ env.ACR_REGISTRY }}/zen-backend:latest
+          cache-from: type=registry,ref=${{ env.ACR_REGISTRY }}/zen-backend:cache
+          cache-to: type=registry,ref=${{ env.ACR_REGISTRY }}/zen-backend:cache,mode=max
+
+      - name: Build & Push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.BACKEND_URL }}
+          tags: |
+            ${{ env.ACR_REGISTRY }}/zen-frontend:${{ steps.tag.outputs.tag }}
+            ${{ env.ACR_REGISTRY }}/zen-frontend:latest
+          cache-from: type=registry,ref=${{ env.ACR_REGISTRY }}/zen-frontend:cache
+          cache-to: type=registry,ref=${{ env.ACR_REGISTRY }}/zen-frontend:cache,mode=max
+
+  deploy:
+    name: Deploy to Azure Container Apps
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'prod' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy backend
+        run: |
+          az containerapp update \
+            --name ${{ env.BACKEND_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.ACR_REGISTRY }}/zen-backend:${{ needs.build-and-push.outputs.image_tag }} \
+            --set-env-vars \
+              ENVIRONMENT=${{ github.event.inputs.environment || 'prod' }} \
+              DATA_SOURCE=${{ vars.DATA_SOURCE || 'mock' }}
+
+      - name: Deploy frontend
+        run: |
+          az containerapp update \
+            --name ${{ env.FRONTEND_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.ACR_REGISTRY }}/zen-frontend:${{ needs.build-and-push.outputs.image_tag }}
+
+      - name: Wait for healthy
+        run: |
+          for app in ${{ env.BACKEND_APP_NAME }} ${{ env.FRONTEND_APP_NAME }}; do
+            az containerapp revision list \
+              --name $app \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --query "[0].properties.healthState" -o tsv
+          done
+
+      - name: Deployment summary
+        run: |
+          FRONTEND_URL=$(az containerapp show \
+            --name ${{ env.FRONTEND_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "### Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "- Image tag: ${{ needs.build-and-push.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend: https://$FRONTEND_URL" >> $GITHUB_STEP_SUMMARY
+
+# Required GitHub Secrets:
+#   AZURE_CREDENTIALS          - Service principal JSON (az ad sp create-for-rbac)
+#   AZURE_ACR_NAME             - ACR name (without .azurecr.io)
+#   AZURE_ACR_LOGIN_SERVER     - e.g. myacr.azurecr.io
+#   AZURE_RESOURCE_GROUP       - Resource group name
+#   BACKEND_URL                - https://zen-backend-prod.azurecontainerapps.io
