@@ -56,7 +56,7 @@ function JsonNode({ value, depth = 0 }: { value: unknown; depth?: number }) {
             : <ChevronDown className="inline w-3 h-3 text-[var(--text-muted)]" />
           }
         </button>
-        <span className="text-[var(--text-muted)">{'{'}</span>
+        <span className="text-[var(--text-muted)]">{'{'}</span>
         {collapsed ? (
           <span className="text-[var(--text-muted)] text-xs cursor-pointer" onClick={() => setCollapsed(false)}>
             {' '}{entries.length} keys{' '}
@@ -112,7 +112,7 @@ export function JsonViewer({ data, title = 'Raw JSON Output' }: JsonViewerProps)
         </div>
       </div>
 
-      <div className="bg-surface rounded-lg p-3 overflow-auto max-h-96 scrollbar-thin">
+      <div className="bg-[var(--surface)] rounded-lg p-3 overflow-auto max-h-96 scrollbar-thin">
         {raw ? (
           <pre className="text-xs font-mono text-[var(--text)] whitespace-pre-wrap">
             {JSON.stringify(data, null, 2)}

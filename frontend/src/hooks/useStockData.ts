@@ -1,6 +1,6 @@
 'use client';
 import useSWR from 'swr';
-import { fetcher, V1 } from '@/utils/api';
+import { fetchJson, V1 } from '@/utils/api';
 import type {
   ZenRating, TechnicalData, FundamentalsData,
   SentimentData, RiskData, WatchlistItem
@@ -15,7 +15,7 @@ const SWR_OPTIONS = {
 export function useZenRating(ticker: string | null) {
   return useSWR<ZenRating>(
     ticker ? `${V1}/score/${ticker.toUpperCase()}` : null,
-    fetcher,
+    (url: string) => fetchJson<ZenRating>(url),
     SWR_OPTIONS
   );
 }
@@ -23,7 +23,7 @@ export function useZenRating(ticker: string | null) {
 export function useTechnicals(ticker: string | null) {
   return useSWR<TechnicalData>(
     ticker ? `${V1}/technicals/${ticker.toUpperCase()}` : null,
-    fetcher,
+    (url: string) => fetchJson<TechnicalData>(url),
     SWR_OPTIONS
   );
 }
@@ -31,7 +31,7 @@ export function useTechnicals(ticker: string | null) {
 export function useFundamentals(ticker: string | null) {
   return useSWR<FundamentalsData>(
     ticker ? `${V1}/fundamentals/${ticker.toUpperCase()}` : null,
-    fetcher,
+    (url: string) => fetchJson<FundamentalsData>(url),
     SWR_OPTIONS
   );
 }
@@ -39,7 +39,7 @@ export function useFundamentals(ticker: string | null) {
 export function useSentiment(ticker: string | null) {
   return useSWR<SentimentData>(
     ticker ? `${V1}/sentiment/${ticker.toUpperCase()}` : null,
-    fetcher,
+    (url: string) => fetchJson<SentimentData>(url),
     SWR_OPTIONS
   );
 }
@@ -47,7 +47,7 @@ export function useSentiment(ticker: string | null) {
 export function useRisk(ticker: string | null) {
   return useSWR<RiskData>(
     ticker ? `${V1}/risk/${ticker.toUpperCase()}` : null,
-    fetcher,
+    (url: string) => fetchJson<RiskData>(url),
     SWR_OPTIONS
   );
 }
@@ -55,7 +55,7 @@ export function useRisk(ticker: string | null) {
 export function useWatchlist() {
   return useSWR<{ count: number; results: WatchlistItem[] }>(
     `${V1}/score/watchlist/defaults`,
-    fetcher,
+    (url: string) => fetchJson<{ count: number; results: WatchlistItem[] }>(url),
     { ...SWR_OPTIONS, revalidateOnMount: true }
   );
 }

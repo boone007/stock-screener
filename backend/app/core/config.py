@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     environment: Literal["development", "staging", "production"] = "development"
 
     api_v1_prefix: str = "/api/v1"
-    allowed_origins: list[str] = ["http://localhost:3000", "http://frontend:3000"]
+    allowed_origins: str = "http://localhost:3000,http://frontend:3000"
 
     redis_url: str = "redis://redis:6379/0"
     redis_ttl_seconds: int = 300
